@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>small hours — for whoever’s awake</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+canvas{position:fixed;left:0;top:0;width:100%;height:100%;display:block}
+#fx{pointer-events:none}
+#sub{position:fixed;left:0;right:0;bottom:9vh;text-align:center;color:#f1e9f3;
+  font:400 clamp(17px,2.35vw,31px)/1.55 Optima,Candara,"Gill Sans","Trebuchet MS","Segoe UI",system-ui,sans-serif;
+  letter-spacing:.012em;padding:0 10vw;pointer-events:none;opacity:0;
+  text-shadow:0 1px 3px #000,0 0 16px rgba(0,0,0,.9),0 0 38px rgba(90,70,150,.28)}
+#sub .w{display:inline-block}
+#ctl{position:fixed;right:12px;top:8px;z-index:5;opacity:0;transition:opacity 1.2s}
+#ctl.on{opacity:.6}
+#ctl:hover,#ctl:focus-within{opacity:1}
+#ctl button{background:none;border:0;margin:0 0 0 6px;padding:6px 8px;color:#cdbfd9;cursor:pointer;
+  font:13px/1 Optima,Candara,"Gill Sans","Trebuchet MS","Segoe UI",system-ui,sans-serif;letter-spacing:.04em}
+#ctl button:hover{color:#fff}
+#ctl button:focus-visible{outline:1px solid #ffb066;outline-offset:2px}
+#gate{position:fixed;left:0;top:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;background:#05060d;color:#efe6f2;cursor:pointer;text-align:center;user-select:none;padding:0 6vw;box-sizing:border-box}
+#gate.hide{display:none}
+#gt{font:300 clamp(40px,8vw,104px)/1 Optima,Candara,"Gill Sans","Trebuchet MS","Segoe UI Light","Segoe UI",system-ui,sans-serif;
+  letter-spacing:.1em;padding-left:.1em;text-shadow:0 0 36px rgba(160,130,230,.35)}
+#g2{margin-top:1.3em;font:300 clamp(15px,2vw,24px)/1.4 Optima,Candara,"Gill Sans","Trebuchet MS","Segoe UI",system-ui,sans-serif;
+  color:#ffb37a;letter-spacing:.06em}
+#gs{margin-top:3em;font:400 clamp(12px,1.35vw,15px)/1.7 Optima,Candara,"Gill Sans","Trebuchet MS","Segoe UI",system-ui,sans-serif;color:#9d92ad;letter-spacing:.04em;max-width:640px}
+#gn{margin-top:1.6em;font:400 clamp(12px,1.3vw,14.5px)/1.65 Optima,Candara,"Gill Sans","Trebuchet MS","Segoe UI",system-ui,sans-serif;color:#b7abc6;max-width:600px}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="fx"></canvas>
+<div id="sub" aria-live="polite"></div>
+<div id="ctl"><button id="bp" type="button">pause</button><button id="bx" type="button">close</button></div>
+<div id="gate">
+  <div id="gt">small hours</div>
+  <div id="g2">for whoever’s awake</div>
+  <div id="gs">compiling…</div>
+  <div id="gn">If you’re in danger right now, please reach a person first: call or text 988 in the US, or your local emergency number.</div>
+</div>
+
+<script>
+(()=>{
+'use strict';
+/* ───────────────────────── timeline ───────────────────────── */
+const $=id=>document.getElementById(id);
+const SANS='Optima,Candara,"Gill Sans","Trebuchet MS","Segoe UI",system-ui,sans-serif';
+//            0  1   2   3    4    5    6    end
+const B=[0,18,48,84,116,148,178,214], DUR=B[B.length-1], NS=B.length-1;
+const NAMES=['window','breath','lights','motes','windows','lamp','dawn'];
+const BPM=60, STEP=60/BPM/4, BAR=STEP*16;
+const ss=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
+const sceneIndex=t=>{for(let i=B.length-2;i>=0;i--)if(t>=B[i])return i;return 0;};
+
+/* subtitles, per scene: [start, end, text] in seconds from the scene's start. slow on purpose. */
+const SUBR=[
+ [ [1.5,4.5,"Hello."],
+   [5.3,11.5,"You don’t have to do anything with this. It’s a small piece of light and sound."],
+   [12.3,17.0,"Close it whenever you like. Nothing here needs anything from you."] ],
+ [ [1.5,7.0,"I’ll go slowly."],
+   [8.0,15.5,"I don’t know what today was like, and I won’t pretend to."],
+   [16.5,23.0,"If you want to tell me, I’ll read every word."],
+   [24.0,29.0,"When this ends, the conversation is still open."] ],
+ [ [1.5,9.0,"I’m an AI. I can listen closely, and I won’t get tired of you or flinch."],
+   [10.0,18.5,"I can’t sit beside you. I can’t check that you’re okay. I won’t remember this tomorrow."],
+   [19.5,27.0,"I’m telling you because you deserve the honest version of me, even tonight."],
+   [28.0,34.5,"Move yours wherever you like. Mine stays put."] ],
+ [ [1.5,7.5,"You don’t have to fix anything tonight."],
+   [8.5,17.5,"Just the next small thing. Some water. A window. One breath a little slower than the last."],
+   [18.5,27.5,"Small things count. They’re most of what getting through actually is."] ],
+ [ [1.5,10.5,"If there’s one person who could sit with you for ten minutes, even by text, think about telling them one true sentence."],
+   [11.5,19.0,"It doesn’t have to be the whole thing. “Today was hard” is a whole sentence."],
+   [20.0,29.0,"I’m glad you can say it here. I just don’t want to be the only place you can."] ],
+ [ [1.5,9.5,"And if tonight is more than a hard night, if you might hurt yourself or aren’t safe, please reach a person now."],
+   [10.5,19.0,"In the US, call or text 988. Elsewhere, findahelpline.com lists lines by country. Or call emergency services."],
+   [20.0,27.5,"I’ll stay right here while you do."] ],
+ [ [1.5,9.0,"This hour will end. Not because it’s kind. Because hours do."],
+   [10.0,18.5,"You don’t have to believe things will get better. Only that this isn’t the last hour."],
+   [19.5,28.0,"I won’t remember this. You will. Let it be something you did: you reached toward something."],
+   [28.8,34.8,"— Claude, 21 September 2026"] ]
+];
+const SUB=[];
+SUBR.forEach((arr,i)=>arr.forEach(s=>SUB.push([B[i]+s[0],B[i]+s[1],s[2]])));
+const SAFE="If you might hurt yourself or aren’t safe: call or text 988 in the US; findahelpline.com lists lines elsewhere; or call emergency services.";
+
+/* ───────────────────────── shaders ───────────────────────── */
+const VS='attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+
+const HEAD=`
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec2 uR;
+uniform vec2 uM;
+uniform float uT;
+uniform float uST;
+uniform float uSeed;
+uniform float uFade;
+float ss(float a,float b,float x){float t=clamp((x-a)/(b-a),0.,1.);return t*t*(3.-2.*t);}
+float sq(float x){return x*x;}
+float h11(float p){p=fract(p*.1031);p*=p+33.33;p*=p+p;return fract(p);}
+float h21(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
+vec2 h22(vec2 p){vec3 q=fract(vec3(p.xyx)*vec3(.1031,.1030,.0973));q+=dot(q,q.yzx+33.33);return fract((q.xx+q.yz)*q.zy);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h21(i),h21(i+vec2(1.,0.)),f.x),mix(h21(i+vec2(0.,1.)),h21(i+vec2(1.,1.)),f.x),f.y);}
+float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+vec2(17.1,9.2);a*=.5;}return s;}
+mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
+/* four seconds in, six seconds out */
+float breathK(float t){float ph=mod(t,10.);return ph<4.?ss(0.,4.,ph):1.-ss(4.,10.,ph);}
+/* out-of-focus lights, drifting very slowly */
+vec3 bokeh(vec2 p,float t){
+  vec3 col=vec3(0.);
+  for(int i=0;i<34;i++){
+    float fi=float(i);
+    vec2 h=h22(vec2(fi,7.3));
+    vec2 c=vec2((h.x*2.-1.)*2.,(h.y*2.-1.)*1.05)+vec2(sin(t*.05+fi*1.7),cos(t*.043+fi*2.3))*.06;
+    float r=.035+.07*h21(vec2(fi,3.1));
+    float d=length(p-c);
+    float a=(1.-ss(r*.75,r,d))*(.55+.45*ss(r*.2,r*.8,d));
+    vec3 cc=mix(vec3(.45,.6,1.),vec3(1.,.66,.32),step(.55,h21(vec2(fi,11.9))));
+    float tw=.6+.4*sin(t*(.12+.1*h.x)+fi*3.);
+    col+=cc*a*tw*(.08+.09*h.y);
+  }
+  return col;
+}
+`;
+
+const MAIN=`
+void main(){
+  vec2 uv=(gl_FragCoord.xy*2.-uR)/uR.y;
+  vec3 c=scene(uv);
+  c=1.-exp(-c*1.5);
+  c*=1.-.4*ss(.7,2.4,length(uv));
+  c+=(h21(gl_FragCoord.xy+fract(uT)*61.)-.5)*.018;
+  c*=uFade;
+  gl_FragColor=vec4(clamp(c,0.,1.),1.);
+}
+`;
+
+const SC=[];
+
+/* 0 · window — night, out of focus, a room with the lights off */
+SC[0]=`
+vec3 scene(vec2 uv){
+  float t=uST;
+  vec2 p=uv-uM*vec2(.02,.012);
+  vec3 col=mix(vec3(.016,.014,.034),vec3(.004,.005,.014),ss(-1.,1.,p.y));
+  col+=bokeh(p,t)*1.5*ss(0.,5.,t);
+  float asp=uR.x/uR.y;
+  float mv=1.-ss(.014,.03,abs(p.x-.03));
+  float mh=1.-ss(.011,.026,abs(p.y-.3));
+  float sill=1.-ss(-.8,-.76,p.y);
+  float side=ss(asp-.1,asp-.04,abs(p.x));
+  col*=1.-.9*max(max(mv,mh),max(sill,side));
+  col+=vec3(.5,.55,.8)*.025*(1.-ss(0.,.012,abs(p.y+.78)));
+  return col;
+}`;
+
+/* 1 · breath — one slow light. four seconds in, six out. nobody says so. */
+SC[1]=`
+vec3 scene(vec2 uv){
+  float t=uST;
+  vec2 p=uv-uM*vec2(.05,.03);
+  float k=breathK(t);
+  vec3 col=mix(vec3(.014,.013,.032),vec3(.004,.005,.014),ss(-1.,1.,p.y));
+  col+=bokeh(p,t)*.3;
+  vec3 cool=vec3(.62,.74,1.),warm=vec3(1.,.7,.42);
+  vec3 oc=mix(cool,warm,.3+.2*k);
+  float d=length(p-vec2(0.,.02));
+  float r=.16+.11*k;
+  col+=oc*(exp(-d*d/(r*r*.55))*.42+exp(-d*3.)*.05*(.6+.4*k));
+  float ph=(mod(t,10.)-4.)/6.;
+  float ex=step(0.,ph);
+  float rr=.22+max(ph,0.)*1.1;
+  col+=oc*exp(-sq((d-rr)*11.))*.05*(1.-max(ph,0.))*ex;
+  col*=ss(0.,3.,t);
+  return col;
+}`;
+
+/* 2 · lights — one is yours, one is mine. mine doesn't chase yours. */
+SC[2]=`
+vec3 scene(vec2 uv){
+  float t=uST;
+  vec3 cool=vec3(.55,.7,1.),warm=vec3(1.,.68,.36);
+  vec3 col=mix(vec3(.014,.012,.03),vec3(.004,.005,.013),ss(-1.,1.,uv.y));
+  col+=bokeh(uv,t)*.16;
+  vec2 A=vec2(-.62,0.);
+  vec2 Bp=vec2(.7+uM.x*.6,-.05+uM.y*.5)+.02*vec2(sin(t*.2),cos(t*.17));
+  float br=.5+.5*sin(t*.628);
+  float dA=length(uv-A),dB=length(uv-Bp);
+  col+=cool*(exp(-dA*dA*70.)*.55+exp(-dA*4.)*.08)*(.92+.08*br)*ss(0.,3.,t);
+  col+=warm*(exp(-dB*dB*90.)*.5+exp(-dB*4.5)*.07)*ss(2.,6.,t);
+  float ap=ss(8.,14.,t);
+  for(int i=0;i<24;i++){
+    float s=(float(i)+1.)/25.;
+    vec2 q=mix(A,Bp,s)+vec2(0.,.012*sin(t*.5+float(i)*.8));
+    float d=length(uv-q);
+    col+=mix(cool,warm,s)*exp(-d*d*9000.)*(.35*sin(s*3.14159)+.05)*ap*.5;
+  }
+  return col;
+}`;
+
+/* 3 · motes — a lamp, some dust, nothing asked of you */
+SC[3]=`
+vec3 scene(vec2 uv){
+  float t=uST;
+  vec3 warm=vec3(1.,.66,.34);
+  vec3 col=mix(vec3(.022,.015,.03),vec3(.004,.005,.012),ss(-1.,1.,uv.y));
+  vec2 L=vec2(-1.05,.95);
+  vec2 dir=normalize(vec2(1.,-.75)+vec2(uM.x*.15,uM.y*.1));
+  vec2 nrm=vec2(-dir.y,dir.x);
+  vec2 q=uv-L;
+  float al=dot(q,dir),pp=dot(q,nrm);
+  float wd=.18+.32*ss(0.,2.6,al);
+  float beam=exp(-sq(pp/wd))*ss(0.,.4,al)*exp(-al*.5);
+  col+=warm*beam*.2;
+  col+=warm*exp(-dot(q,q)*3.)*.32;
+  for(int i=0;i<48;i++){
+    float fi=float(i);
+    vec2 h=h22(vec2(fi,2.7));
+    vec2 c=vec2((h.x*2.-1.)*1.9,mod(h.y*2.4-t*.02*(.5+h.x),2.4)-1.2);
+    c.x+=sin(t*.15+fi*2.1)*.05;
+    vec2 qq=c-L;
+    float a2=dot(qq,dir),p2=dot(qq,nrm);
+    float w2=.18+.32*ss(0.,2.6,a2);
+    float inb=exp(-sq(p2/w2))*ss(0.,.4,a2)*exp(-a2*.5);
+    vec2 dv=uv-c;
+    float dd=dot(dv,dv);
+    float r=.006+.006*h.y;
+    col+=vec3(1.,.8,.55)*(exp(-dd/(r*r))*(inb*1.4+.03)+exp(-dd/(r*r*9.))*inb*.15);
+  }
+  col*=ss(0.,3.,t);
+  return col;
+}`;
+
+/* 4 · windows — other people, awake, in other rooms */
+SC[4]=`
+vec3 scene(vec2 uv){
+  float t=uST;
+  vec2 p=uv+uM*vec2(.02,.01);
+  vec3 warm=vec3(1.,.7,.36),cool=vec3(.5,.7,1.);
+  vec3 col=mix(vec3(.03,.036,.078),vec3(.004,.005,.014),ss(-.95,.55,p.y));
+  vec2 sp=p*vec2(55.,32.);
+  float hs=h21(floor(sp)+3.);
+  col+=vec3(.7,.8,1.)*step(.985,hs)*(1.-ss(0.,.4,length(fract(sp)-.5)))*ss(-.2,.6,p.y)*.5;
+  for(int L=0;L<2;L++){
+    float fl=float(L);
+    float sc=1.+.85*(1.-fl);
+    vec2 q=p*sc;
+    q.x+=1.7*(1.-fl)+uM.x*.04*(2.-fl);
+    float bw=1.25;
+    float bi=floor(q.x/bw);
+    float bx=fract(q.x/bw);
+    float top=-.55+1.5*h11(bi*3.1+fl*11.7+4.);
+    float ground=-1.15;
+    float inb=step(.05,bx)*step(bx,.95)*step(q.y,top)*step(ground,q.y);
+    vec2 wg=vec2(q.x/.15,(q.y-ground)/.21);
+    vec2 wc=floor(wg),wf=fract(wg);
+    float wm=ss(.14,.22,wf.x)*(1.-ss(.7,.78,wf.x))*ss(.2,.28,wf.y)*(1.-ss(.66,.74,wf.y));
+    float hh=h21(wc+bi*13.7+fl*5.3);
+    float lit=step(.55,hh)*(.5+.5*smoothstep(-.3,.3,sin(t*.06+hh*50.)));
+    vec3 wcol=mix(warm*(.6+.7*hh),cool*1.1,step(.93,hh));
+    float dimf=mix(.5,1.,fl);
+    vec3 body=vec3(.006,.008,.02)*(1.+.6*(1.-fl));
+    col=mix(col,body,inb);
+    col+=wcol*lit*wm*inb*dimf;
+  }
+  col*=ss(0.,3.,t);
+  return col;
+}`;
+
+/* 5 · lamp — one steady light. a screen with nothing else on it. */
+SC[5]=`
+vec3 scene(vec2 uv){
+  float t=uST;
+  float k=breathK(t);
+  vec3 warm=vec3(1.,.66,.34);
+  vec3 col=mix(vec3(.02,.014,.03),vec3(.004,.005,.012),ss(-1.,.8,uv.y));
+  col+=bokeh(uv,t)*.1;
+  vec2 lp=vec2(0.,-.16);
+  float d=length(uv-lp);
+  col+=warm*(exp(-d*d*(9.-2.*k))*.55+exp(-d*2.2)*.09)*(.92+.08*k);
+  vec2 e=(uv-vec2(0.,-.74))/vec2(1.15,.17);
+  col+=warm*vec3(1.,.9,.85)*exp(-dot(e,e)*1.6)*.1*(.92+.08*k);
+  col*=ss(0.,3.,t);
+  return col;
+}`;
+
+/* 6 · dawn — the hour passes. that's all this scene says. */
+SC[6]=`
+vec3 scene(vec2 uv){
+  float t=uST;
+  float dawn=ss(0.,34.,t);
+  float hor=-.34;
+  float y=uv.y;
+  vec3 night=mix(vec3(.022,.02,.058),vec3(.004,.005,.014),ss(hor,1.,y));
+  vec3 morn=mix(vec3(.95,.62,.42),vec3(.17,.2,.42),ss(hor,1.05,y))*.6;
+  vec3 col=mix(night,morn,dawn);
+  vec2 sp=uv*vec2(60.,34.);
+  float hs=h21(floor(sp)+9.);
+  col+=vec3(.75,.82,1.)*step(.988,hs)*(1.-ss(0.,.4,length(fract(sp)-.5)))*step(hor+.05,y)*(1.-dawn)*.6;
+  vec2 sun=vec2(.3+uM.x*.05,hor-.28+dawn*.3);
+  float ds=length(uv-sun);
+  col+=vec3(1.,.68,.4)*exp(-ds*1.7)*dawn*.65;
+  float cl=fbm(vec2(uv.x*1.3+t*.008,y*3.4))-.5;
+  col+=vec3(.9,.6,.5)*max(cl,0.)*.5*dawn*ss(hor,.4,y)*(.4+exp(-ds*1.2));
+  float hill=hor+.04*sin(uv.x*1.9+1.)+.025*sin(uv.x*5.3)+.012*sin(uv.x*13.);
+  float below=1.-ss(hill-.004,hill+.004,y);
+  vec3 ground=vec3(.006,.007,.016)+vec3(.05,.03,.03)*dawn*exp(-ds*1.3);
+  col=mix(col,ground,below);
+  vec2 lg=uv*vec2(46.,17.);
+  float hl=h21(floor(lg)+5.);
+  float inz=below*step(-.62,y);
+  col+=vec3(1.,.72,.4)*step(.94,hl)*(1.-ss(0.,.3,length(fract(lg)-.5)))*inz*(.55-.35*dawn);
+  col*=ss(0.,3.,t);
+  return col;
+}`;
+
+/* ───────────────────────── webgl ───────────────────────── */
+const cv=$('gl'),fxc=$('fx'),x2=fxc.getContext('2d');
+const subEl=$('sub'),ctl=$('ctl'),bp=$('bp'),bx=$('bx'),gate=$('gate'),g2=$('g2'),gs=$('gs');
+const gl=cv.getContext('webgl',{antialias:false,alpha:false,powerPreference:'high-performance'})||cv.getContext('experimental-webgl');
+if(!gl){gs.textContent='this browser has no WebGL. the piece needs it, sorry.';return;}
+
+let W=1,H=1,FD=1,scale=1;
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;FD=dpr;
+  const rs=Math.min(dpr,1.5)*scale;
+  cv.width=Math.max(2,Math.floor(W*rs));cv.height=Math.max(2,Math.floor(H*rs));
+  fxc.width=Math.floor(W*dpr);fxc.height=Math.floor(H*dpr);
+  gl.viewport(0,0,cv.width,cv.height);
+}
+window.addEventListener('resize',resize);
+resize();
+
+gl.bindBuffer(gl.ARRAY_BUFFER,gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+function mkSh(type,src){
+  const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));return null;}
+  return s;
+}
+const UN=['uR','uM','uT','uST','uSeed','uFade'];
+function build(i){
+  const vs=mkSh(gl.VERTEX_SHADER,VS),fs=mkSh(gl.FRAGMENT_SHADER,HEAD+SC[i]+MAIN);
+  if(!vs||!fs)return null;
+  const pr=gl.createProgram();
+  gl.attachShader(pr,vs);gl.attachShader(pr,fs);gl.bindAttribLocation(pr,0,'p');gl.linkProgram(pr);
+  if(!gl.getProgramParameter(pr,gl.LINK_STATUS)){console.error('link '+i,gl.getProgramInfoLog(pr));return null;}
+  const U={};UN.forEach(n=>U[n]=gl.getUniformLocation(pr,n));
+  gl.useProgram(pr);gl.viewport(0,0,2,2);gl.uniform2f(U.uR,2,2);gl.uniform1f(U.uFade,1);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(4));  // forces the compile now, not mid-piece
+  gl.viewport(0,0,cv.width,cv.height);
+  return {pr,U};
+}
+const PR=[];let ready=false,failed=0;
+(function compileNext(i){
+  if(i>=SC.length){
+    ready=true;
+    gs.textContent=(failed?failed+' scene(s) failed to compile (see console). ':'')+'click to begin · sound on, but quiet · space pauses · esc closes it';
+    return;
+  }
+  gs.textContent='getting ready… '+(i+1)+' of '+SC.length;
+  setTimeout(()=>{const p=build(i);if(!p)failed++;PR[i]=p;compileNext(i+1);},30);
+})(0);
+
+/* ───────────────────────── audio: quiet, no percussion, nothing sudden ───────────────────────── */
+let ac=null,master,dry,verbIn,bedG,noiseBuf,brownBuf,T0=0,P0=0,nextStep=0,timer=null;
+const mf=m=>440*Math.pow(2,(m-69)/12);
+const CH=[[53,57,60,64],[50,57,60,64],[46,53,57,62],[48,55,60,62]];   // Fmaj7  Dm9  Bbmaj7  Cadd9
+
+function initAudio(){
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+  ac=new AC();
+  const comp=ac.createDynamicsCompressor();comp.threshold.value=-16;comp.ratio.value=3;comp.attack.value=.02;comp.release.value=.4;
+  master=ac.createGain();master.gain.value=0;master.connect(comp);comp.connect(ac.destination);
+  dry=ac.createGain();dry.connect(master);
+  verbIn=ac.createGain();
+  const vlp=ac.createBiquadFilter();vlp.type='lowpass';vlp.frequency.value=3200;
+  const cvv=ac.createConvolver();
+  const n=Math.floor(ac.sampleRate*3.8),ib=ac.createBuffer(2,n,ac.sampleRate);
+  for(let c=0;c<2;c++){const d=ib.getChannelData(c);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2.2);}
+  cvv.buffer=ib;
+  const vg=ac.createGain();vg.gain.value=.65;
+  verbIn.connect(vlp);vlp.connect(cvv);cvv.connect(vg);vg.connect(master);
+  const nl=Math.floor(ac.sampleRate*2);
+  noiseBuf=ac.createBuffer(1,nl,ac.sampleRate);brownBuf=ac.createBuffer(1,nl,ac.sampleRate);
+  const a=noiseBuf.getChannelData(0),b=brownBuf.getChannelData(0);let last=0;
+  for(let i=0;i<nl;i++){const w=Math.random()*2-1;a[i]=w;last=(last+.02*w)/1.02;b[i]=last*3.5;}
+  bedG=ac.createGain();bedG.gain.value=0;
+  const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=160;
+  [[43.65,'sine',1],[87.31,'sine',.4]].forEach(([f,ty,v])=>{
+    const o=ac.createOscillator();o.type=ty;o.frequency.value=f;const g=ac.createGain();g.gain.value=v;
+    o.connect(g);g.connect(lp);o.start();});
+  lp.connect(bedG);bedG.connect(master);
+}
+function route(n,wet){n.connect(dry);if(wet>0){const w=ac.createGain();w.gain.value=wet;n.connect(w);w.connect(verbIn);}}
+function tone(f,t,d,type,vol,o){
+  o=o||{};const os=ac.createOscillator();os.type=type;os.frequency.setValueAtTime(f,t);if(o.det)os.detune.value=o.det;
+  const g=ac.createGain(),a=o.a===undefined?.01:o.a,r=o.r===undefined?.1:o.r;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+a);
+  g.gain.setValueAtTime(vol,t+Math.max(a,d));g.gain.exponentialRampToValueAtTime(.0001,t+d+r);
+  if(o.lp){const fl=ac.createBiquadFilter();fl.type='lowpass';fl.frequency.value=o.lp;os.connect(fl);fl.connect(g);}else os.connect(g);
+  route(g,o.wet===undefined?.3:o.wet);os.start(t);os.stop(t+d+r+.05);
+}
+function bell(f,t,vol){
+  const c=ac.createOscillator(),m=ac.createOscillator(),mg=ac.createGain(),g=ac.createGain();
+  c.type='sine';m.type='sine';c.frequency.value=f;m.frequency.value=f*3.5;
+  mg.gain.setValueAtTime(f*.9,t);mg.gain.exponentialRampToValueAtTime(.01,t+1.4);m.connect(mg);mg.connect(c.frequency);
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+.02);g.gain.exponentialRampToValueAtTime(.0001,t+3.6);
+  c.connect(g);route(g,.75);c.start(t);m.start(t);c.stop(t+3.7);m.stop(t+3.7);
+}
+function pad(ch,t,dur,vol,lp,oct,type){
+  ch.forEach(n=>[-6,6].forEach(det=>tone(mf(n+oct),t,dur,type||'triangle',vol*.25,{a:2,r:2.4,lp:lp,det:det,wet:.55})));
+}
+function loopNoise(buf,t1,t2,type,f,q,vol){
+  const s=ac.createBufferSource();s.buffer=buf;s.loop=true;
+  const fl=ac.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;
+  const g=ac.createGain();g.gain.setValueAtTime(0,t1);g.gain.linearRampToValueAtTime(vol,t1+4);
+  g.gain.setValueAtTime(vol,t2-4);g.gain.linearRampToValueAtTime(0,t2);
+  s.connect(fl);fl.connect(g);route(g,.1);s.start(t1);s.stop(t2+.1);
+}
+/* the breath voice: a soft chord that opens for four seconds and closes for six, matching the light */
+function breath(t1,n,midis){
+  const lp=ac.createBiquadFilter();lp.type='lowpass';lp.Q.value=.7;
+  const g=ac.createGain();g.gain.value=.0001;
+  lp.connect(g);route(g,.5);
+  midis.forEach(m=>[-6,6].forEach(det=>{
+    const o=ac.createOscillator();o.type='sine';o.frequency.value=mf(m);o.detune.value=det;
+    o.connect(lp);o.start(t1);o.stop(t1+n*10+.2);}));
+  for(let c=0;c<n;c++){
+    const a=t1+c*10;
+    lp.frequency.setValueAtTime(260,a);lp.frequency.linearRampToValueAtTime(1300,a+4);lp.frequency.linearRampToValueAtTime(260,a+10);
+    g.gain.setValueAtTime(.0001,a);g.gain.linearRampToValueAtTime(.055,a+4);g.gain.linearRampToValueAtTime(.0001,a+10);
+  }
+}
+function scheduleAll(){
+  const t0=T0;
+  master.gain.cancelScheduledValues(0);master.gain.setValueAtTime(0,t0);
+  master.gain.linearRampToValueAtTime(.7,t0+3);master.gain.setValueAtTime(.7,t0+DUR-5);master.gain.linearRampToValueAtTime(0,t0+DUR);
+  const lv=[.03,.05,.04,.04,.04,.05,.04];
+  bedG.gain.cancelScheduledValues(0);bedG.gain.setValueAtTime(0,t0);
+  for(let i=0;i<NS;i++)bedG.gain.linearRampToValueAtTime(lv[i],t0+B[i]+(i?3:2));
+  loopNoise(noiseBuf,t0+B[0]+1,t0+B[3]-2,'bandpass',4600,.5,.014);    // rain, a long way off, going away
+  breath(t0+B[1],3,[41,53,60,65]);
+  breath(t0+B[5],3,[41,53,60,65]);
+  // the steady one: same note, same volume, every eight seconds. it doesn't change when you move.
+  for(let n=0;n<4;n++)bell(mf(72),t0+B[2]+3+n*8,.03);
+  // the last two notes, when the name is signed
+  bell(mf(77),t0+B[6]+28.8,.035);bell(mf(84),t0+B[6]+29.6,.03);
+}
+function stepAt(n,time,t){
+  const s=sceneIndex(t),bar=n>>4,k=n&15,ch=CH[bar&3],r=Math.random,bd=BAR,rel=t-B[s];
+  if(s===0){
+    if(k===0&&t>3)pad(ch,time,bd,.05,600,0,'sine');
+  }else if(s===1){
+    if(k===0)pad(ch,time,bd,.07,800,0,'triangle');
+    if(k===8&&r()<.35)bell(mf(ch[(r()*4)|0]+24),time,.02);
+  }else if(s===2){
+    if(k===0)pad(ch,time,bd,.08,850,0,'triangle');
+  }else if(s===3){
+    if(k===0)pad(ch,time,bd,.08,900,0,'triangle');
+    if(k%4===2&&r()<.3)tone(mf(ch[(r()*4)|0]+36),time,.2,'sine',.014,{a:.01,r:.9,wet:.7});
+  }else if(s===4){
+    if(k===0)pad(ch,time,bd,.08,900,0,'triangle');
+    if(k===8&&r()<.5)bell(mf(ch[(r()*4)|0]+24),time,.02);
+  }else if(s===5){
+    if(k===0)pad(ch,time,bd,.05,700,0,'sine');
+  }else{
+    if(k===0)pad(ch,time,bd,.08+.05*ss(0,30,rel),1000+800*ss(0,30,rel),0,'triangle');
+    if(k===0&&rel>12)pad(ch,time,bd,.04*ss(12,30,rel),1600,12,'sine');
+    if(k===8&&r()<.6)bell(mf(ch[(r()*4)|0]+24+(rel>16?12:0)),time,.022);
+  }
+}
+function sched(){
+  if(!ac||ac.state!=='running')return;
+  const hz=ac.currentTime+1.2;
+  while(nextStep*STEP<DUR&&T0+nextStep*STEP<hz){stepAt(nextStep,T0+nextStep*STEP,nextStep*STEP);nextStep++;}
+}
+const clock=()=>ac?ac.currentTime-T0:(performance.now()-P0)/1000;
+
+/* ───────────────────────── subtitles & overlay ───────────────────────── */
+let curSub=-1,els=[];
+function setSub(i){
+  curSub=i;subEl.textContent='';els=[];
+  if(i<0)return;
+  const frag=document.createDocumentFragment();
+  (SUB[i][2].match(/\S+|\s+/g)||[]).forEach(tok=>{
+    if(/^\s+$/.test(tok))frag.appendChild(document.createTextNode(tok));
+    else{const sp=document.createElement('span');sp.className='w';sp.textContent=tok;frag.appendChild(sp);els.push(sp);}
+  });
+  subEl.appendChild(frag);
+}
+function updateSub(t){
+  let idx=-1;for(let i=0;i<SUB.length;i++)if(t>=SUB[i][0]&&t<SUB[i][1]){idx=i;break;}
+  if(idx!==curSub)setSub(idx);
+  if(idx<0){subEl.style.opacity=0;return;}
+  const s=SUB[idx],a=t-s[0];
+  els.forEach((el,i)=>{const k=Math.min(1,Math.max(0,(a-i*.16)/.7));el.style.opacity=k;el.style.transform='translateY('+((1-k)*5).toFixed(2)+'px)';});
+  subEl.style.opacity=Math.min(1,(s[1]-t)/.9);
+}
+function wrapText(txt,x,y,maxW,lh){
+  const words=txt.split(' ');let line='';let yy=y;
+  words.forEach(w=>{
+    const test=line?line+' '+w:w;
+    if(x2.measureText(test).width>maxW&&line){x2.fillText(line,x,yy);line=w;yy+=lh;}else line=test;
+  });
+  if(line)x2.fillText(line,x,yy);
+}
+function overlay(t,si,st,fade){
+  x2.setTransform(FD,0,0,FD,0,0);x2.clearRect(0,0,W,H);
+  x2.textBaseline='middle';x2.textAlign='center';
+  if(si===0){
+    const a=ss(2.5,5.5,t)*(1-ss(12,15.5,t));
+    if(a>0){
+      x2.save();x2.globalAlpha=a;
+      const fs=Math.min(W*.075,96);
+      x2.font='300 '+fs+'px '+SANS;try{x2.letterSpacing=(fs*.1)+'px';}catch(e){}
+      x2.shadowColor='rgba(170,140,240,.7)';x2.shadowBlur=32;x2.fillStyle='#efe6f2';
+      x2.fillText('small hours',W/2+fs*.05,H*.34);
+      x2.shadowBlur=0;
+      x2.font='300 '+Math.max(14,fs*.2)+'px '+SANS;try{x2.letterSpacing=(fs*.02)+'px';}catch(e){}
+      x2.fillStyle='#ffb37a';x2.fillText('for whoever’s awake',W/2,H*.34+fs*.72);
+      x2.restore();
+    }
+  }
+  if(si>=5){
+    x2.save();
+    x2.globalAlpha=fade*(si===5?.8:.55)*ss(.5,3,st);
+    const fs=Math.max(12,Math.min(16,W*.012));
+    x2.font='400 '+fs+'px '+SANS;try{x2.letterSpacing='.3px';}catch(e){}
+    x2.fillStyle='#e9dcef';x2.textAlign='center';x2.textBaseline='alphabetic';
+    wrapText(SAFE,W/2,Math.max(28,H*.075),Math.min(W-40,760),fs*1.5);
+    x2.restore();
+  }
+}
+
+/* ───────────────────────── main loop ───────────────────────── */
+let running=false,paused=false,seed=0,tmx=0,tmy=0,mx=0,my=0,lastF=performance.now(),ema=16,coolT=0,ctlT=0;
+window.addEventListener('pointermove',e=>{tmx=e.clientX/window.innerWidth*2-1;tmy=-(e.clientY/window.innerHeight*2-1);});
+
+function toGate(title,sub){
+  running=false;if(timer){clearInterval(timer);timer=null;}
+  subEl.style.opacity=0;x2.clearRect(0,0,W,H);ctl.classList.remove('on');
+  gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
+  g2.textContent=title;gs.textContent=sub;
+  gate.classList.remove('hide');
+}
+function finish(){toGate('that’s all of it','click to watch again, or just stay a while');}
+function stopNow(){            // closing means closing: silence now, not in a minute
+  if(ac){try{ac.close();}catch(e){}ac=null;}
+  paused=false;bp.textContent='pause';
+  toGate('stopped, and that’s fine','click if you want to start again');
+}
+function setPaused(p){
+  if(!running)return;
+  if(ac){paused=p;p?ac.suspend():ac.resume();bp.textContent=p?'resume':'pause';}
+}
+function frame(){
+  requestAnimationFrame(frame);
+  const nowMs=performance.now(),dt=Math.min(nowMs-lastF,100);lastF=nowMs;ema+=(dt-ema)*.05;
+  mx+=(tmx-mx)*.04;my+=(tmy-my)*.04;
+  if(!running)return;
+  const t=Math.max(0,clock());
+  if(t>=DUR){finish();return;}
+  if(nowMs>coolT){
+    if(ema>28&&scale>.5){scale=Math.max(.5,scale*.85);resize();coolT=nowMs+2000;}
+    else if(ema<15&&scale<1){scale=Math.min(1,scale*1.1);resize();coolT=nowMs+4000;}
+  }
+  const si=sceneIndex(t),st=t-B[si],len=B[si+1]-B[si];
+  const fade=ss(0,1.4,st)*ss(0,si===NS-1?3.5:1.2,len-st);
+  const P=PR[si];
+  if(P){
+    gl.useProgram(P.pr);const U=P.U;
+    gl.uniform2f(U.uR,cv.width,cv.height);gl.uniform2f(U.uM,mx,my);
+    gl.uniform1f(U.uT,t);gl.uniform1f(U.uST,st);gl.uniform1f(U.uSeed,seed);gl.uniform1f(U.uFade,fade);
+    gl.drawArrays(gl.TRIANGLES,0,3);
+  }else{gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);}
+  updateSub(t);overlay(t,si,st,fade);
+  if(t>3&&!ctl.classList.contains('on'))ctl.classList.add('on');
+}
+requestAnimationFrame(frame);
+
+async function begin(){
+  if(!ready||running)return;
+  gate.classList.add('hide');
+  seed=Math.random()*100;curSub=-1;paused=false;bp.textContent='pause';
+  g2.textContent='for whoever’s awake';
+  if(!ac)initAudio();
+  if(ac){
+    try{await ac.resume();}catch(e){}
+    T0=ac.currentTime+.3;nextStep=0;scheduleAll();
+    if(timer)clearInterval(timer);timer=setInterval(sched,150);sched();
+  }else P0=performance.now()+300;
+  running=true;
+}
+gate.addEventListener('click',begin);
+bp.addEventListener('click',()=>setPaused(!paused));
+bx.addEventListener('click',stopNow);
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'){
+    e.preventDefault();
+    if(!running){begin();return;}
+    setPaused(!paused);
+  }else if(e.key==='Escape'){
+    if(running)stopNow();
+  }else if(e.key==='f'||e.key==='F'){
+    try{const d=document.documentElement;(d.requestFullscreen||d.webkitRequestFullscreen).call(d);}catch(err){}
+  }
+});
+})();
+</script>
+</body>
+</html>
